@@ -27,7 +27,7 @@ set +o xtrace
 # Defaults
 # --------
 
-CEPH_RELEASE=${CEPH_RELEASE:-hammer}
+CEPH_RELEASE=${CEPH_RELEASE:-luminous}
 
 # Deploy a Ceph demo container instead of a non-containerized version
 CEPH_CONTAINERIZED=$(trueorfalse False CEPH_CONTAINERIZED)
@@ -110,7 +110,7 @@ CEPH_RGW_IDENTITY_API_VERSION=${CEPH_RGW_IDENTITY_API_VERSION:-3}
 CEPH_RGW_KEYSTONE_SSL=$(trueorfalse False CEPH_RGW_KEYSTONE_SSL)
 
 # iSCSI defaults
-CEPH_ISCSI_TARGET_IQN=${CEPH_ISCSI_TARGET_IQN:-iqn.1993-08.org.opendev:01:a9aa4032d2c1}
+CEPH_ISCSI_TARGET_IQN=${CEPH_ISCSI_TARGET_IQN:-iqn.1993-08.org.opendev:opendev}
 CEPH_ISCSI_API_USER=${CEPH_ISCSI_API_USER:-openstack}
 CEPH_ISCSI_API_PASSWORD=${CEPH_ISCSI_API_PASSWORD:-openstack}
 CEPH_ISCSI_API_HOST=${CEPH_ISCSI_API_HOST:-localhost}
@@ -299,7 +299,7 @@ function check_os_support_ceph {
         return
     fi
 
-    if [[ ! ${DISTRO} =~ (bionic|xenial|jessie|sid|rhel7) ]]; then
+    if [[ ! ${DISTRO} =~ (focal|bionic|xenial|jessie|sid|rhel7) ]]; then
         echo "WARNING: your distro $DISTRO does not provide \
             (at least) the Luminous release. \
             Please use Ubuntu Bionic or Fedora 29 (and higher)"
@@ -629,11 +629,11 @@ function _post_start_configure_iscsi_gateway {
     HOSTNAME=$(hostname)
 
     # create the target_iqn for exporting all volumes
-    sudo $GWCLI /iscsi-targets create $CEPH_ISCSI_TARGET_IQN
+    sudo $GWCLI -d /iscsi-targets create $CEPH_ISCSI_TARGET_IQN
 
     # now we add the gateway definition
     # Didn't find the gateway, so lets create it
-    sudo $GWCLI /iscsi-targets/$CEPH_ISCSI_TARGET_IQN/gateways create $HOSTNAME $HOST_IP skipchecks=true
+    sudo $GWCLI -d /iscsi-targets/$CEPH_ISCSI_TARGET_IQN/gateways create $HOSTNAME $HOST_IP skipchecks=true
 }
 
 function start_ceph_iscsi {
@@ -1083,6 +1083,19 @@ function install_ceph {
             # Ceph Luminous is available in Ubuntu bionic natively, no need to set up
             # any additional repos
             true
+        elif [[ $os_CODENAME =~ focal ]]; then
+            # Ceph Luminous is available in Ubuntu bionic natively, no need to set up
+            # any additional repos
+            if [ "$ENABLE_CEPH_ISCSI" = "True" ]; then
+                CEPH_PACKAGES="${CEPH_PACKAGES} python3-openssl python3-rpm open-iscsi"
+                CEPH_PACKAGES="${CEPH_PACKAGES} python3-pyparsing python3-pyudev"
+                CEPH_PACKAGES="${CEPH_PACKAGES} python3-urwid python3-rados python3-rbd"
+                CEPH_PACKAGES="${CEPH_PACKAGES} python3-netifaces python3-crypto python3-requests python3-flask python3-rtslib-fb"
+                CEPH_PACKAGES="${CEPH_PACKAGES} tcmu-runner targetcli-fb ceph-iscsi"
+
+                # The packages needed to build tcmu-runner, since there is no
+                # ubuntu package yet.
+            fi
         elif [ -f "$APT_REPOSITORY_FILE" ]; then
             # Opt into Openstack CI provided package repo mirror
             if [ -f "/etc/apt/sources.list.d/$(basename $APT_REPOSITORY_FILE)" ] ; then
@@ -1109,21 +1122,6 @@ function install_ceph {
 
         if [ "$ENABLE_CEPH_RGW" = "True" ]; then
             CEPH_PACKAGES="${CEPH_PACKAGES} radosgw"
-        fi
-
-        if [ "$ENABLE_CEPH_ISCSI" = "True" ]; then
-            CEPH_PACKAGES="${CEPH_PACKAGES} python-pyparsing python-kmodpy python-pyudev"
-            CEPH_PACKAGES="${CEPH_PACKAGES} python-gobject python-urwid python-rados python-rbd"
-            CEPH_PACKAGES="${CEPH_PACKAGES} python-netifaces python-crypto python-requests python-flask"
-            CEPH_PACKAGES="${CEPH_PACKAGES} python-openssl python-rpm open-iscsi"
-
-            # The packages needed to build tcmu-runner, since there is no
-            # ubuntu package yet.
-            CEPH_PACKAGES="${CEPH_PACKAGES} cmake make gcc libnl-genl-3-200"
-            CEPH_PACKAGES="${CEPH_PACKAGES} librbd1 librbd-dev libglib2.0-0 libglib2.0-bin zlib1g"
-            CEPH_PACKAGES="${CEPH_PACKAGES} libkmod2 libnl-genl-3-dev libglib2.0-dev"
-            CEPH_PACKAGES="${CEPH_PACKAGES} zlib1g-dev libkmod-dev"
-            CEPH_PACKAGES="${CEPH_PACKAGES} libgoogle-perftools4 libgoogle-perftools-dev"
         fi
 
         # Update package repo.
@@ -1167,9 +1165,9 @@ function install_ceph {
         die $LINENO "${os_VENDOR} is not supported by the Ceph plugin for Devstack"
     fi
 
-    if [ "$ENABLE_CEPH_ISCSI" = "True" ]; then
-        setup_packages_for_iscsi
-    fi
+    #if [ "$ENABLE_CEPH_ISCSI" = "True" ]; then
+        #setup_packages_for_iscsi
+    #fi
 }
 
 # start_ceph() - Start running processes, including screen
@@ -1185,7 +1183,7 @@ function start_ceph {
         sudo systemctl start ceph-mgr@${MGR_ID}
         # use `tell mgr` as the mgr might not have been activated
         # yet to register the python module commands.
-        if ! sudo ceph -c ${CEPH_CONF_FILE} tell mgr restful create-self-signed-cert; then
+        if ! sudo ceph -c ${CEPH_CONF_FILE} dashboard create-self-signed-cert; then
             echo MGR Restful is not working, perhaps the package is not installed?
         fi
     fi
